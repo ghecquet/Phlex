@@ -186,7 +186,7 @@ function initialize() {
 		}
 		die();
 	}
-	
+
 	if (isset($_GET['deleteDevice'])) {
 		$id = $_GET['id'];
 		write_log("Gonna delete device with ID of " . $id);
@@ -2517,6 +2517,7 @@ function fetchInfo($matrix) {
 function plexSearch($title, $type=false) {
     $castGenre = $hubs = $randomize = $results = false;
     write_log($type ? "Searching for the $type $title." : "Searching for $title.");
+
     $request = [
         'path' => '/hubs/search',
         'query' => [
@@ -2526,6 +2527,8 @@ function plexSearch($title, $type=false) {
         ]
     ];
 	$result = doRequest($request);
+
+	write_log("Results from hub search  is ", $result);
 
     if ($result) {
         $container = new SimpleXMLElement($result);
@@ -2549,6 +2552,9 @@ function plexSearch($title, $type=false) {
 			        if ($push) write_log("Grabbing hub results for $hubType.");
 			        foreach ($Hub->children() as $Element) {
 				        $Element = flattenXML($Element);
+
+						write_log("Results from hub search is ". implode("|", $Element));
+
 				        if ($push) array_push($results, $Element);
 				        if ($check) {
 					        $search = cleanCommandString($title);
@@ -2564,6 +2570,67 @@ function plexSearch($title, $type=false) {
 	        }
         }
     }
+
+	if (count($castGenre)) {
+		write_log("Found matches for cast or genre, discarding other results.","INFO");
+		$results = [];
+
+		foreach ($castGenre as $result) {
+			if ($type) {
+				if ($result['type'] === $type) array_push($results, $result);
+			} else array_push($results, $result);
+		}
+    }
+
+	if (!$results) {
+		// Search in ccloudtv
+		$request = [
+	        'path' => '/video/ccloudtv/search',
+	        'query' => [
+	            'query' => urlencode($title),
+	            'X-Plex-Token' => $_SESSION['plexServerToken']
+	        ]
+	    ];
+		$result = doRequest($request, 5);
+
+	    if ($result) {
+	        $container = new SimpleXMLElement($result);
+			$size = $container['size'];
+
+			// We need one more than the search here
+			if ($size > 1) {
+				$channel = flattenXML($container->children()[0]);
+
+				$url = parse_url($channel["key"]);
+
+				$path = $url['path'];
+				parse_str($url['query'], $query);
+
+				$query['channelDesc'] = $title;
+
+				$request = [
+					'path' => $path,
+					'query' => $query + [
+						'X-Plex-Token' => $_SESSION['plexServerToken']
+					]
+				];
+
+				$result = doRequest($request, 5);
+
+				if ($result) {
+			        $container = new SimpleXMLElement($result);
+			        if (isset($container->Video)) {
+				        $Element = flattenXML($container->Video);
+
+						write_log("Results from hub search is ". implode("|", $Element));
+						array_push($results, $Element);
+			        }
+			    }
+			}
+	    }
+	}
+
+
 
 	if (count($castGenre)) {
 		write_log("Found matches for cast or genre, discarding other results.","INFO");
@@ -4613,7 +4680,3 @@ function fireHook($param = false, $type = false) {
 		}
 	}
 }
-
-
-
-
